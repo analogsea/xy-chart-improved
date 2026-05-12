@@ -1,24 +1,26 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - master
       - main
   pull_request:
     branches:
-      - master
       - main
+
+permissions: read-all
 
 jobs:
   build:
-    name: Build, lint and unit tests
+    name: Build, lint, test and package
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
       plugin-id: ${{ steps.metadata.outputs.plugin-id }}
       plugin-version: ${{ steps.metadata.outputs.plugin-version }}
+      plugin-dist-artifact: ${{ steps.metadata.outputs.plugin-dist-artifact }}
       has-e2e: ${{ steps.check-for-e2e.outputs.has-e2e }}
       has-backend: ${{ steps.check-for-backend.outputs.has-backend }}
     env:
@@ -27,30 +29,38 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - name: Setup Node.js environment
-        uses: actions/setup-node@v6
+
+      - name: Install mise tools
+        uses: jdx/mise-action@v3
         with:
-          node-version: '22'
-          cache: 'npm'
+          install: true
+          cache: true
 
       - name: Install dependencies
-        run: npm ci
+        run: mise exec -- npm ci
 
       - name: Check types
-        run: npm run typecheck
+        run: mise exec -- npm run typecheck
+
       - name: Lint
-        run: npm run lint
+        run: mise exec -- npm run lint
+
       - name: Unit tests
-        run: npm run test:ci
+        run: mise exec -- npm run test:ci
+
       - name: Build frontend
-        run: npm run build
+        run: mise exec -- npm run build
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip
 
       - name: Check for backend
         id: check-for-backend
         run: |
-          if [ -f "Magefile.go" ]
-          then
-            echo "has-backend=true" >> $GITHUB_OUTPUT
+          if [ -f "Magefile.go" ]; then
+            echo "has-backend=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Setup Go environment
@@ -83,50 +93,67 @@ jobs:
       - name: Check for E2E
         id: check-for-e2e
         run: |
-          if [ -f "playwright.config.ts" ]
-          then
-            echo "has-e2e=true" >> $GITHUB_OUTPUT
+          if [ -f "playwright.config.ts" ]; then
+            echo "has-e2e=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Sign plugin
-        run: npm run sign
         if: ${{ env.GRAFANA_ACCESS_POLICY_TOKEN != '' }}
+        run: mise exec -- npm run sign
 
       - name: Get plugin metadata
         id: metadata
         run: |
-          sudo apt-get install jq
+          plugin_id="$(node -p "require('./dist/plugin.json').id")"
+          plugin_version="$(node -p "require('./dist/plugin.json').info.version")"
 
-          export GRAFANA_PLUGIN_ID=$(cat dist/plugin.json | jq -r .id)
-          export GRAFANA_PLUGIN_VERSION=$(cat dist/plugin.json | jq -r .info.version)
-          export GRAFANA_PLUGIN_ARTIFACT=${GRAFANA_PLUGIN_ID}-${GRAFANA_PLUGIN_VERSION}.zip
-
-          echo "plugin-id=${GRAFANA_PLUGIN_ID}" >> $GITHUB_OUTPUT
-          echo "plugin-version=${GRAFANA_PLUGIN_VERSION}" >> $GITHUB_OUTPUT
-          echo "archive=${GRAFANA_PLUGIN_ARTIFACT}" >> $GITHUB_OUTPUT
+          {
+            echo "plugin-id=${plugin_id}"
+            echo "plugin-version=${plugin_version}"
+            echo "plugin-dist-artifact=${plugin_id}-${plugin_version}-dist"
+            echo "plugin-zip-artifact=${plugin_id}-${plugin_version}-zip"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Package plugin
         id: package-plugin
         run: |
-          mv dist ${PLUGIN_ID}
-          zip ${ARCHIVE} ${PLUGIN_ID} -r
-        env:
-          ARCHIVE: ${{ steps.metadata.outputs.archive }}
-          PLUGIN_ID: ${{ steps.metadata.outputs.plugin-id }}
+          set -euo pipefail
 
-      - name: Check plugin.json
+          archive="${PLUGIN_ID}-${PLUGIN_VERSION}.zip"
+          rm -rf artifacts/package
+          mkdir -p artifacts/package
+          cp -R dist "artifacts/package/${PLUGIN_ID}"
+
+          (
+            cd artifacts/package
+            zip -r "../${archive}" "${PLUGIN_ID}"
+          )
+
+          echo "archive=artifacts/${archive}" >> "$GITHUB_OUTPUT"
+        env:
+          PLUGIN_ID: ${{ steps.metadata.outputs.plugin-id }}
+          PLUGIN_VERSION: ${{ steps.metadata.outputs.plugin-version }}
+
+      - name: Check plugin archive
         run: |
-          docker run --pull=always \
-            -v $PWD/${ARCHIVE}:/archive.zip \
+          docker run --pull=always --rm \
+            -v "$PWD/${ARCHIVE}:/archive.zip:ro" \
             grafana/plugin-validator-cli -analyzer=metadatavalid /archive.zip
         env:
-          ARCHIVE: ${{ steps.metadata.outputs.archive }}
+          ARCHIVE: ${{ steps.package-plugin.outputs.archive }}
 
-      - name: Archive Build
+      - name: Upload plugin dist
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.metadata.outputs.plugin-id }}-${{ steps.metadata.outputs.plugin-version }}
-          path: ${{ steps.metadata.outputs.plugin-id }}
+          name: ${{ steps.metadata.outputs.plugin-dist-artifact }}
+          path: dist
+          retention-days: 5
+
+      - name: Upload plugin zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.metadata.outputs.plugin-zip-artifact }}
+          path: ${{ steps.package-plugin.outputs.archive }}
           retention-days: 5
 
   resolve-versions:
@@ -159,7 +186,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        GRAFANA_IMAGE: ${{fromJson(needs.resolve-versions.outputs.matrix)}}
+        GRAFANA_IMAGE: ${{ fromJson(needs.resolve-versions.outputs.matrix) }}
     name: e2e test ${{ matrix.GRAFANA_IMAGE.name }}@${{ matrix.GRAFANA_IMAGE.VERSION }}
     runs-on: ubuntu-latest
     steps:
@@ -167,25 +194,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download plugin
+      - name: Download plugin dist
         uses: actions/download-artifact@v8
         with:
           path: dist
-          name: ${{ needs.build.outputs.plugin-id }}-${{ needs.build.outputs.plugin-version }}
+          name: ${{ needs.build.outputs.plugin-dist-artifact }}
 
       - name: Execute permissions on binary
         if: needs.build.outputs.has-backend == 'true'
-        run: |
-          chmod +x ./dist/gpx_*
+        run: chmod +x ./dist/gpx_*
 
-      - name: Setup Node.js environment
-        uses: actions/setup-node@v6
+      - name: Install mise tools
+        uses: jdx/mise-action@v3
         with:
-          node-version: '22'
-          cache: 'npm'
+          install: true
+          cache: true
 
       - name: Install dev dependencies
-        run: npm ci
+        run: mise exec -- npm ci
 
       - name: Start Grafana
         run: |
@@ -193,16 +219,16 @@ jobs:
           ANONYMOUS_AUTH_ENABLED=false DEVELOPMENT=false GRAFANA_VERSION=${{ matrix.GRAFANA_IMAGE.VERSION }} GRAFANA_IMAGE=${{ matrix.GRAFANA_IMAGE.NAME }} docker compose up -d
 
       - name: Wait for grafana server
-        uses: grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.0.2
+        uses: grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.0.3
         with:
           url: http://localhost:3000/login
 
       - name: Install Playwright Browsers
-        run: npm exec playwright install chromium --with-deps
+        run: mise exec -- npm exec playwright install chromium --with-deps
 
       - name: Run Playwright tests
         id: run-tests
-        run: npm run e2e
+        run: mise exec -- npm run e2e
 
       - name: Upload e2e test summary
         uses: grafana/plugin-actions/playwright-gh-pages/upload-report-artifacts@upload-report-artifacts/v1.0.1
@@ -214,35 +240,8 @@ jobs:
 
       - name: Docker logs
         if: ${{ always() && steps.run-tests.outcome == 'failure' }}
-        run: |
-          docker logs analogsea-xychartimproved-panel >& grafana-server.log
+        run: docker logs analogsea-xychartimproved-panel >& grafana-server.log
 
       - name: Stop grafana docker
+        if: ${{ always() }}
         run: docker compose down
-
-      # Uncomment this step to upload the server log to Github artifacts. Remember Github artifacts are public on the Internet if the repository is public.
-      # - name: Upload server log
-      #   uses: actions/upload-artifact@v4
-      #   if: ${{ always() && steps.run-tests.outcome == 'failure' }}
-      #   with:
-      #     name: ${{ matrix.GRAFANA_IMAGE.NAME }}-v${{ matrix.GRAFANA_IMAGE.VERSION }}-${{github.run_id}}-server-log
-      #     path: grafana-server.log
-      #     retention-days: 5
-
-  publish-report:
-    if: ${{ always() && !cancelled() }}
-    permissions:
-      contents: write
-      id-token: write
-      pull-requests: write
-    needs: [playwright-tests]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          # required for playwright-gh-pages
-          persist-credentials: true
-      - name: Publish report
-        uses: grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@deploy-report-pages/v1.1.0
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}

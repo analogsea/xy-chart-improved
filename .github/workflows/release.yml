@@ -1,29 +1,115 @@
-# This GitHub Action automates the process of building Grafana plugins.
-# (For more information, see https://github.com/grafana/plugin-actions/blob/main/build-plugin/README.md)
 name: Release
 
 on:
   push:
     tags:
-      - 'v*' # Run workflow on version tags, e.g. v1.0.0.
+      - 'v*'
 
 permissions: read-all
 
 jobs:
   release:
-    permissions:
-      contents: write
+    name: Build and publish release artifact
     runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    env:
+      GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - uses: grafana/plugin-actions/build-plugin@build-plugin/v1.0.2
-        # Uncomment to enable plugin signing
-        # (For more info on how to generate the access policy token see https://grafana.com/developers/plugin-tools/publish-a-plugin/sign-a-plugin#generate-an-access-policy-token)
-        #with:
-        # Make sure to save the token in your repository secrets
-        #policy_token: $
-        # Usage of GRAFANA_API_KEY is deprecated, prefer `policy_token` option above
-        #grafana_token: $
+      - name: Install mise tools
+        uses: jdx/mise-action@v3
+        with:
+          install: true
+          cache: true
+
+      - name: Install dependencies
+        run: mise exec -- npm ci
+
+      - name: Check types
+        run: mise exec -- npm run typecheck
+
+      - name: Lint
+        run: mise exec -- npm run lint
+
+      - name: Unit tests
+        run: mise exec -- npm run test:ci
+
+      - name: Build frontend
+        run: mise exec -- npm run build
+
+      - name: Sign plugin
+        if: ${{ env.GRAFANA_ACCESS_POLICY_TOKEN != '' }}
+        run: mise exec -- npm run sign
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip
+
+      - name: Get plugin metadata
+        id: metadata
+        run: |
+          plugin_id="$(node -p "require('./dist/plugin.json').id")"
+          plugin_version="$(node -p "require('./dist/plugin.json').info.version")"
+          archive="${plugin_id}-${plugin_version}.zip"
+          tag="${GITHUB_REF_NAME}"
+
+          if [ "v${plugin_version}" != "${tag}" ]; then
+            echo "Tag ${tag} does not match package version ${plugin_version}."
+            exit 1
+          fi
+
+          {
+            echo "plugin-id=${plugin_id}"
+            echo "plugin-version=${plugin_version}"
+            echo "archive=${archive}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Package plugin
+        id: package-plugin
+        run: |
+          set -euo pipefail
+
+          rm -rf artifacts/package
+          mkdir -p artifacts/package
+          cp -R dist "artifacts/package/${PLUGIN_ID}"
+
+          (
+            cd artifacts/package
+            zip -r "../${ARCHIVE}" "${PLUGIN_ID}"
+          )
+
+          sha1sum "artifacts/${ARCHIVE}" | awk '{ print $1 }' > "artifacts/${ARCHIVE}.sha1sum"
+          echo "archive=artifacts/${ARCHIVE}" >> "$GITHUB_OUTPUT"
+          echo "archive-sha1sum=artifacts/${ARCHIVE}.sha1sum" >> "$GITHUB_OUTPUT"
+        env:
+          ARCHIVE: ${{ steps.metadata.outputs.archive }}
+          PLUGIN_ID: ${{ steps.metadata.outputs.plugin-id }}
+
+      - name: Check plugin archive
+        run: |
+          docker run --pull=always --rm \
+            -v "$PWD/${ARCHIVE}:/archive.zip:ro" \
+            grafana/plugin-validator-cli -analyzer=metadatavalid /archive.zip
+        env:
+          ARCHIVE: ${{ steps.package-plugin.outputs.archive }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: ${{ steps.package-plugin.outputs.archive }}
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2.3.4
+        with:
+          draft: false
+          generate_release_notes: true
+          files: |
+            ${{ steps.package-plugin.outputs.archive }}
+            ${{ steps.package-plugin.outputs.archive-sha1sum }}
