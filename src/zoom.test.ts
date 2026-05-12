@@ -1,4 +1,4 @@
-import { getSharedXRangeQuery, getVariableQueryKey } from './zoom';
+import { getSharedXRangeQuery, getTimeRange, getVariableQueryKey } from './zoom';
 
 describe('zoom helpers', () => {
   it('formats dashboard variable query keys', () => {
@@ -31,5 +31,13 @@ describe('zoom helpers', () => {
 
   it('ignores invalid ranges', () => {
     expect(getSharedXRangeQuery({ from: Number.NaN, to: 1 })).toBeNull();
+    expect(getTimeRange({ from: Number.NaN, to: 1 })).toBeNull();
+  });
+
+  it('builds a normalized time range', () => {
+    expect(getTimeRange({ from: 1710000001000, to: 1710000000000 })).toEqual({
+      from: 1710000000000,
+      to: 1710000001000,
+    });
   });
 });

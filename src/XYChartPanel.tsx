@@ -1,7 +1,7 @@
 import { css } from '@emotion/css';
 import React, { useCallback, useMemo } from 'react';
 
-import { colorManipulator, FALLBACK_COLOR, Field, LinkModel, PanelProps } from '@grafana/data';
+import { colorManipulator, FALLBACK_COLOR, Field, FieldType, LinkModel, PanelProps } from '@grafana/data';
 import { config, locationService } from '@grafana/runtime';
 import {
   TooltipDisplayMode,
@@ -20,7 +20,7 @@ import { defaultZoomOptions, Options, XYZoomMode } from './options';
 import { XYChartTooltip } from './XYChartTooltip';
 import { prepConfig } from './scatter';
 import { prepSeries } from './utils';
-import { getSharedXRangeQuery } from './zoom';
+import { getSharedXRangeQuery, getTimeRange } from './zoom';
 
 type Props2 = PanelProps<Options>;
 
@@ -29,6 +29,7 @@ export const XYChartPanel2 = (props: Props2) => {
   const theme = useTheme2();
 
   let { mapping, series: mappedSeries } = props.options;
+  const { onChangeTimeRange } = props;
   const zoom = props.options.zoom ?? defaultZoomOptions;
   const zoomMode = zoom.mode ?? defaultZoomOptions.mode;
   const tooltipMode = props.options.tooltip.mode;
@@ -51,19 +52,30 @@ export const XYChartPanel2 = (props: Props2) => {
     () => prepData(series),
     [prepData, series]
   );
+  const isTimeXAxis = series[0]?.x.field.type === FieldType.time;
 
   // todo: handle errors
   let error = builder == null || data.length === 0 ? 'Err' : '';
 
   const onXRangeZoom = useCallback(
     (range: { from: number; to: number }) => {
+      if (isTimeXAxis) {
+        const timeRange = getTimeRange(range);
+
+        if (timeRange != null) {
+          onChangeTimeRange(timeRange);
+        }
+
+        return;
+      }
+
       const query = getSharedXRangeQuery(range, zoom);
 
       if (query != null) {
         locationService.partial(query);
       }
     },
-    [zoom]
+    [isTimeXAxis, onChangeTimeRange, zoom]
   );
 
   // TODO: React.memo()
