@@ -18,7 +18,8 @@ import { Button, Field, IconButton, Select, useStyles2 } from '@grafana/ui';
 
 import { FieldNamePicker } from './FieldNamePicker';
 import { LayerName } from './LayerName';
-import { Options, SeriesMapping, XYSeriesConfig } from './panelcfg.gen';
+import { Options } from './options';
+import { SeriesMapping, XYSeriesConfig } from './panelcfg.gen';
 
 export const SeriesEditor = ({
   value: seriesCfg,

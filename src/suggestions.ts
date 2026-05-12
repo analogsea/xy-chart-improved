@@ -3,7 +3,8 @@ import { t } from '@grafana/i18n';
 import { config } from '@grafana/runtime';
 import { LegendDisplayMode } from '@grafana/ui';
 
-import { Options, FieldConfig, SeriesMapping } from './panelcfg.gen';
+import { Options } from './options';
+import { FieldConfig, SeriesMapping } from './panelcfg.gen';
 import { prepConfig } from './scatter';
 import { prepSeries } from './utils';
 

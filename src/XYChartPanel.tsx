@@ -1,8 +1,8 @@
 import { css } from '@emotion/css';
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 
 import { colorManipulator, FALLBACK_COLOR, Field, LinkModel, PanelProps } from '@grafana/data';
-import { config } from '@grafana/runtime';
+import { config, locationService } from '@grafana/runtime';
 import {
   TooltipDisplayMode,
   TooltipPlugin2,
@@ -16,10 +16,11 @@ import {
 
 import { getDisplayValuesForCalcs } from './compat/displayCalcs';
 import { TooltipHoverMode } from './compat/uPlotTooltip';
+import { defaultZoomOptions, Options, XYZoomMode } from './options';
 import { XYChartTooltip } from './XYChartTooltip';
-import { Options } from './panelcfg.gen';
 import { prepConfig } from './scatter';
 import { prepSeries } from './utils';
+import { getSharedXRangeQuery } from './zoom';
 
 type Props2 = PanelProps<Options>;
 
@@ -28,6 +29,10 @@ export const XYChartPanel2 = (props: Props2) => {
   const theme = useTheme2();
 
   let { mapping, series: mappedSeries } = props.options;
+  const zoom = props.options.zoom ?? defaultZoomOptions;
+  const zoomMode = zoom.mode ?? defaultZoomOptions.mode;
+  const tooltipMode = props.options.tooltip.mode;
+  const tooltipEnabled = tooltipMode !== TooltipDisplayMode.None;
 
   // regenerate series schema when mappings or data changes
   let series = useMemo(
@@ -37,8 +42,8 @@ export const XYChartPanel2 = (props: Props2) => {
 
   // if series changed due to mappings or data structure, re-init config & renderers
   let { builder, prepData } = useMemo(
-    () => prepConfig(series, config.theme2, props.options.tooltip.mode),
-    [series, props.options.tooltip.mode]
+    () => prepConfig(series, config.theme2, tooltipMode, zoomMode),
+    [series, tooltipMode, zoomMode]
   );
 
   // generate data struct for uPlot mode: 2
@@ -49,6 +54,17 @@ export const XYChartPanel2 = (props: Props2) => {
 
   // todo: handle errors
   let error = builder == null || data.length === 0 ? 'Err' : '';
+
+  const onXRangeZoom = useCallback(
+    (range: { from: number; to: number }) => {
+      const query = getSharedXRangeQuery(range, zoom);
+
+      if (query != null) {
+        locationService.partial(query);
+      }
+    },
+    [zoom]
+  );
 
   // TODO: React.memo()
   const renderLegend = () => {
@@ -105,19 +121,24 @@ export const XYChartPanel2 = (props: Props2) => {
     <VizLayout width={props.width} height={props.height} legend={renderLegend()}>
       {(vizWidth: number, vizHeight: number) => (
         <UPlotChart config={builder!} data={data} width={vizWidth} height={vizHeight}>
-          {props.options.tooltip.mode !== TooltipDisplayMode.None && (
+          {(tooltipEnabled || zoomMode === XYZoomMode.X) && (
             <TooltipPlugin2
               config={builder!}
               hoverMode={
-                (props.options.tooltip.mode === TooltipDisplayMode.Multi
+                (tooltipMode === TooltipDisplayMode.Multi
                   ? TooltipHoverMode.xAll
                   : TooltipHoverMode.xyOne) as unknown as React.ComponentProps<typeof TooltipPlugin2>['hoverMode']
               }
+              queryZoom={zoomMode === XYZoomMode.X ? onXRangeZoom : undefined}
               getDataLinks={(seriesIdx, dataIdx) => {
                 const xySeries = series[seriesIdx - 1];
                 return getDataLinks(xySeries.y.field, dataIdx);
               }}
               render={(u, dataIdxs, seriesIdx, isPinned, dismiss, timeRange2, viaSync, dataLinks) => {
+                if (!tooltipEnabled) {
+                  return null;
+                }
+
                 return (
                   <XYChartTooltip
                     dataIdxs={dataIdxs}
@@ -125,7 +146,7 @@ export const XYChartPanel2 = (props: Props2) => {
                     isPinned={isPinned}
                     seriesIdx={seriesIdx!}
                     dataLinks={dataLinks}
-                    mode={props.options.tooltip.mode}
+                    mode={tooltipMode}
                     sortOrder={props.options.tooltip.sort}
                     hideZeros={props.options.tooltip.hideZeros}
                     maxHeight={props.options.tooltip.maxHeight}

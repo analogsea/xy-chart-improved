@@ -24,6 +24,7 @@ import {
 import { UPlotConfigBuilder } from '@grafana/ui';
 
 import { FacetedData, FacetSeries } from './compat/uPlotTooltip';
+import { XYZoomMode } from './options';
 import { PointShape } from './panelcfg.gen';
 import { pointWithin, Quadtree, Rect } from './quadtree';
 import { XYSeries } from './types2';
@@ -43,7 +44,12 @@ interface DrawBubblesOpts {
   };
 }
 
-export const prepConfig = (xySeries: XYSeries[], theme: GrafanaTheme2, tooltipMode?: TooltipDisplayMode) => {
+export const prepConfig = (
+  xySeries: XYSeries[],
+  theme: GrafanaTheme2,
+  tooltipMode?: TooltipDisplayMode,
+  zoomMode = XYZoomMode.Box
+) => {
   if (xySeries.length === 0) {
     return { builder: null, prepData: () => [] };
   }
@@ -239,7 +245,14 @@ export const prepConfig = (xySeries: XYSeries[], theme: GrafanaTheme2, tooltipMo
   const builder = new UPlotConfigBuilder();
 
   builder.setCursor({
-    drag: { setScale: true },
+    drag:
+      zoomMode === XYZoomMode.X
+        ? {
+            setScale: false,
+            x: true,
+            y: false,
+          }
+        : { setScale: true },
     dataIdx: (u, seriesIdx) => {
       if (tooltipMode === TooltipDisplayMode.Multi) {
         return getNearestDataIdxByX(u, seriesIdx);
