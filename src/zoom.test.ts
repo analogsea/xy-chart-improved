@@ -1,6 +1,13 @@
 import { formatDurationSeconds } from './duration';
 import { XYXAxisMode } from './options';
-import { getSharedXRangeQuery, getTimeRange, getVariableQueryKey, getXAxisModeForPanel, getXAxisModeFromValue } from './zoom';
+import {
+  getSharedXRangeQuery,
+  getSharedXRangeResetQuery,
+  getTimeRange,
+  getVariableQueryKey,
+  getXAxisModeForPanel,
+  getXAxisModeFromValue,
+} from './zoom';
 
 describe('zoom helpers', () => {
   it('formats dashboard variable query keys', () => {
@@ -60,6 +67,36 @@ describe('zoom helpers', () => {
     ).toEqual({
       'var-rel_start': '30',
       'var-rel_end': '180',
+    });
+  });
+
+  it('builds a reset query for shared step and relative-time ranges', () => {
+    expect(
+      getSharedXRangeResetQuery({
+        stepXMinVariable: 'step_start',
+        stepXMaxVariable: 'step_end',
+        relativeTimeXMinVariable: 'rel_start',
+        relativeTimeXMaxVariable: 'rel_end',
+      })
+    ).toEqual({
+      'var-step_start': '',
+      'var-step_end': '',
+      'var-rel_start': '',
+      'var-rel_end': '',
+    });
+  });
+
+  it('resets legacy shared x range variables when configured', () => {
+    expect(
+      getSharedXRangeResetQuery({
+        xMinVariable: 'x_start',
+        xMaxVariable: 'x_end',
+      })
+    ).toEqual({
+      'var-x_start': '',
+      'var-x_end': '',
+      'var-rel_time_min': '',
+      'var-rel_time_max': '',
     });
   });
 

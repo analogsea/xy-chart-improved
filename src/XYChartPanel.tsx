@@ -1,9 +1,11 @@
 import { css } from '@emotion/css';
 import React, { useCallback, useMemo } from 'react';
 
-import { colorManipulator, FALLBACK_COLOR, Field, FieldType, LinkModel, PanelProps } from '@grafana/data';
+import { colorManipulator, FALLBACK_COLOR, Field, FieldType, GrafanaTheme2, LinkModel, PanelProps } from '@grafana/data';
+import { t } from '@grafana/i18n';
 import { config, locationService } from '@grafana/runtime';
 import {
+  IconButton,
   TooltipDisplayMode,
   TooltipPlugin2,
   UPlotChart,
@@ -20,7 +22,7 @@ import { defaultZoomOptions, Options, XYZoomMode } from './options';
 import { XYChartTooltip } from './XYChartTooltip';
 import { prepConfig } from './scatter';
 import { prepSeries } from './utils';
-import { getSharedXRangeQuery, getTimeRange, getXAxisModeForPanel } from './zoom';
+import { getSharedXRangeQuery, getSharedXRangeResetQuery, getTimeRange, getXAxisModeForPanel } from './zoom';
 
 type Props2 = PanelProps<Options>;
 
@@ -55,6 +57,8 @@ export const XYChartPanel2 = (props: Props2) => {
     [prepData, series]
   );
   const isTimeXAxis = series[0]?.x.field.type === FieldType.time;
+  const resetZoomQuery = useMemo(() => getSharedXRangeResetQuery(zoom), [zoom]);
+  const showXRangeResetButton = zoomMode === XYZoomMode.X && !isTimeXAxis && resetZoomQuery != null;
 
   // todo: handle errors
   let error = builder == null || data.length === 0 ? 'Err' : '';
@@ -78,6 +82,17 @@ export const XYChartPanel2 = (props: Props2) => {
       }
     },
     [isTimeXAxis, onChangeTimeRange, zoom, xAxisMode]
+  );
+
+  const onResetXRangeZoom = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+
+      if (resetZoomQuery != null) {
+        locationService.partial(resetZoomQuery);
+      }
+    },
+    [resetZoomQuery]
   );
 
   // TODO: React.memo()
@@ -134,55 +149,81 @@ export const XYChartPanel2 = (props: Props2) => {
   return (
     <VizLayout width={props.width} height={props.height} legend={renderLegend()}>
       {(vizWidth: number, vizHeight: number) => (
-        <UPlotChart config={builder!} data={data} width={vizWidth} height={vizHeight}>
-          {(tooltipEnabled || zoomMode === XYZoomMode.X) && (
-            <TooltipPlugin2
-              config={builder!}
-              hoverMode={
-                (tooltipMode === TooltipDisplayMode.Multi
-                  ? TooltipHoverMode.xAll
-                  : TooltipHoverMode.xyOne) as unknown as React.ComponentProps<typeof TooltipPlugin2>['hoverMode']
-              }
-              queryZoom={zoomMode === XYZoomMode.X ? onXRangeZoom : undefined}
-              getDataLinks={(seriesIdx, dataIdx) => {
-                const xySeries = series[seriesIdx - 1];
-                return getDataLinks(xySeries.y.field, dataIdx);
-              }}
-              render={(u, dataIdxs, seriesIdx, isPinned, dismiss, timeRange2, viaSync, dataLinks) => {
-                if (!tooltipEnabled) {
-                  return null;
+        <div className={styles.chart} style={{ width: vizWidth, height: vizHeight }}>
+          <UPlotChart config={builder!} data={data} width={vizWidth} height={vizHeight}>
+            {(tooltipEnabled || zoomMode === XYZoomMode.X) && (
+              <TooltipPlugin2
+                config={builder!}
+                hoverMode={
+                  (tooltipMode === TooltipDisplayMode.Multi
+                    ? TooltipHoverMode.xAll
+                    : TooltipHoverMode.xyOne) as unknown as React.ComponentProps<typeof TooltipPlugin2>['hoverMode']
                 }
+                queryZoom={zoomMode === XYZoomMode.X ? onXRangeZoom : undefined}
+                getDataLinks={(seriesIdx, dataIdx) => {
+                  const xySeries = series[seriesIdx - 1];
+                  return getDataLinks(xySeries.y.field, dataIdx);
+                }}
+                render={(u, dataIdxs, seriesIdx, isPinned, dismiss, timeRange2, viaSync, dataLinks) => {
+                  if (!tooltipEnabled) {
+                    return null;
+                  }
 
-                return (
-                  <XYChartTooltip
-                    dataIdxs={dataIdxs}
-                    xySeries={series}
-                    isPinned={isPinned}
-                    seriesIdx={seriesIdx!}
-                    dataLinks={dataLinks}
-                    mode={tooltipMode}
-                    sortOrder={props.options.tooltip.sort}
-                    hideZeros={props.options.tooltip.hideZeros}
-                    maxHeight={props.options.tooltip.maxHeight}
-                    xAxisMode={xAxisMode}
-                    relativeTimeUnit={relativeTimeUnit}
-                  />
-                );
-              }}
-              maxWidth={props.options.tooltip.maxWidth}
+                  return (
+                    <XYChartTooltip
+                      dataIdxs={dataIdxs}
+                      xySeries={series}
+                      isPinned={isPinned}
+                      seriesIdx={seriesIdx!}
+                      dataLinks={dataLinks}
+                      mode={tooltipMode}
+                      sortOrder={props.options.tooltip.sort}
+                      hideZeros={props.options.tooltip.hideZeros}
+                      maxHeight={props.options.tooltip.maxHeight}
+                      xAxisMode={xAxisMode}
+                      relativeTimeUnit={relativeTimeUnit}
+                    />
+                  );
+                }}
+                maxWidth={props.options.tooltip.maxWidth}
+              />
+            )}
+          </UPlotChart>
+          {showXRangeResetButton && (
+            <IconButton
+              className={styles.resetZoomButton}
+              name="sync"
+              onClick={onResetXRangeZoom}
+              tooltip={t('xychart.zoom-reset.tooltip', 'Reset X-axis zoom')}
+              tooltipPlacement="left"
+              variant="secondary"
             />
           )}
-        </UPlotChart>
+        </div>
       )}
     </VizLayout>
   );
 };
 
-const getStyles = () => ({
+const getStyles = (theme: GrafanaTheme2) => ({
+  chart: css({
+    height: '100%',
+    position: 'relative',
+    width: '100%',
+  }),
   legend: css({
     div: {
       justifyContent: 'flex-start',
     },
+  }),
+  resetZoomButton: css({
+    background: theme.colors.background.primary,
+    border: `1px solid ${theme.colors.border.weak}`,
+    borderRadius: theme.shape.radius.default,
+    position: 'absolute',
+    right: theme.spacing(0.5),
+    top: theme.spacing(0.5),
+    zIndex: 1,
   }),
 });
 

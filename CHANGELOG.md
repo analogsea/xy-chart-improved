@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/analogsea/xy-chart-improved/compare/v1.3.0...v1.4.0) (2026-05-13)
+
+
+### Features
+
+* add X-axis zoom reset control
+
 ## [1.3.0](https://github.com/analogsea/xy-chart-improved/compare/v1.2.0...v1.3.0) (2026-05-13)
 
 

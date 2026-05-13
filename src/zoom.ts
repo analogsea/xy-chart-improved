@@ -27,6 +27,24 @@ export function getSharedXRangeQuery(
   };
 }
 
+export function getSharedXRangeResetQuery(options?: XYZoomOptions): Record<string, string> | null {
+  const query: Record<string, string> = {};
+  const variableNames = [
+    ...Object.values(getXRangeVariableNames(options, XYXAxisMode.Step)),
+    ...Object.values(getXRangeVariableNames(options, XYXAxisMode.RelativeTime)),
+  ];
+
+  for (const variableName of variableNames) {
+    const key = getVariableQueryKey(variableName);
+
+    if (key != null) {
+      query[key] = '';
+    }
+  }
+
+  return Object.keys(query).length > 0 ? query : null;
+}
+
 export function getTimeRange(range: ZoomRange): ZoomRange | null {
   return getNormalizedZoomRange(range);
 }
