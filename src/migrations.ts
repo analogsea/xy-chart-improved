@@ -6,13 +6,36 @@ import { ScatterSeriesConfig, SeriesMapping, XYDimensionConfig, Options as PrevO
 
 export const xyChartMigrationHandler = (panel: PanelModel): Options => {
   const pluginVersion = panel?.pluginVersion ?? '';
+  const options = panel.options as Partial<Options & PrevOptions>;
 
-  if (pluginVersion === '' || parseFloat(pluginVersion) < 11.1) {
+  if (isCurrentOptionsSchema(options)) {
+    return panel.options;
+  }
+
+  if (pluginVersion === '' || options.dims != null || options.seriesMapping != null || parseFloat(pluginVersion) < 11.1) {
     return migrateOptions(panel);
   }
 
   return panel.options;
 };
+
+function isCurrentOptionsSchema(options: Partial<Options & PrevOptions>): boolean {
+  return (
+    options.mapping != null &&
+    Array.isArray(options.series) &&
+    options.series.every((series) => {
+      const currentSeries = series as Options['series'][number];
+
+      return (
+        currentSeries.frame?.matcher != null ||
+        currentSeries.x?.matcher != null ||
+        currentSeries.y?.matcher != null ||
+        currentSeries.color?.matcher != null ||
+        currentSeries.size?.matcher != null
+      );
+    })
+  );
+}
 
 function migrateOptions(panel: PanelModel): Options {
   const { dims, seriesMapping, series: oldSeries, ...cleanedOpts } = panel.options as PrevOptions;

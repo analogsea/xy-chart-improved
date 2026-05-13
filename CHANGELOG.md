@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/analogsea/xy-chart-improved/compare/v1.4.0...v1.4.1) (2026-05-13)
+
+
+### Bug Fixes
+
+* preserve current panel options during plugin migrations
+
 ## [1.4.0](https://github.com/analogsea/xy-chart-improved/compare/v1.3.0...v1.4.0) (2026-05-13)
 
 
