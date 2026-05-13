@@ -1,10 +1,12 @@
 import { css } from '@emotion/css';
 import React, { ReactNode } from 'react';
 
-import { colorManipulator, Field, GrafanaTheme2, LinkModel } from '@grafana/data';
+import { colorManipulator, Field, FieldType, GrafanaTheme2, LinkModel } from '@grafana/data';
 import { SortOrder, TooltipDisplayMode } from '@grafana/schema';
 import { DataLinkButton, SeriesTable, SeriesTableRowProps, useStyles2 } from '@grafana/ui';
 
+import { formatDurationSeconds } from './duration';
+import { defaultZoomOptions, XYRelativeTimeUnit, XYXAxisMode } from './options';
 import { XYSeries } from './types2';
 import { fmt } from './utils';
 
@@ -18,6 +20,8 @@ export interface Props {
   sortOrder?: SortOrder;
   hideZeros?: boolean;
   maxHeight?: number;
+  xAxisMode?: XYXAxisMode;
+  relativeTimeUnit?: XYRelativeTimeUnit;
 }
 
 interface MultiRow extends SeriesTableRowProps {
@@ -50,6 +54,8 @@ export const XYChartTooltip = ({
   sortOrder,
   hideZeros,
   maxHeight,
+  xAxisMode = XYXAxisMode.Step,
+  relativeTimeUnit = defaultZoomOptions.relativeTimeUnit,
 }: Props) => {
   const styles = useStyles2(getStyles);
 
@@ -58,7 +64,7 @@ export const XYChartTooltip = ({
       <TooltipFrame footer={renderFooter(dataLinks, isPinned, styles)}>
         <div className={styles.content} style={maxHeight != null ? { maxHeight } : undefined}>
           <SeriesTable
-            timestamp={getMultiHeader(dataIdxs, xySeries)}
+            timestamp={getMultiHeader(dataIdxs, xySeries, xAxisMode, relativeTimeUnit)}
             series={getMultiRows(dataIdxs, xySeries, seriesIdx, sortOrder, hideZeros)}
           />
         </div>
@@ -81,7 +87,7 @@ export const XYChartTooltip = ({
 
   const label = series.name.value;
   const seriesColor = getSeriesColor(series, rowIndex);
-  const contentItems = getSingleRows(series, rowIndex);
+  const contentItems = getSingleRows(series, rowIndex, xAxisMode, relativeTimeUnit);
 
   return (
     <TooltipFrame footer={renderFooter(dataLinks, isPinned, styles)}>
@@ -129,7 +135,12 @@ function getActiveSeriesIdx(dataIdxs: Array<number | null>, seriesIdx: number | 
   return firstIdx > 0 ? firstIdx : null;
 }
 
-function getSingleRows(series: XYSeries, rowIndex: number) {
+function getSingleRows(
+  series: XYSeries,
+  rowIndex: number,
+  xAxisMode: XYXAxisMode,
+  relativeTimeUnit: XYRelativeTimeUnit
+) {
   const xField = series.x.field;
   const yField = series.y.field;
   const sizeField = series.size.field;
@@ -141,7 +152,7 @@ function getSingleRows(series: XYSeries, rowIndex: number) {
   if (!hideFromTooltip(xField)) {
     contentItems.push({
       label: stripSeriesName(getFieldName(xField), label),
-      value: fmt(xField, xField.values[rowIndex]),
+      value: formatXValue(xField, xField.values[rowIndex], xAxisMode, relativeTimeUnit),
     });
     addedFields.add(xField);
   }
@@ -182,17 +193,42 @@ function getSingleRows(series: XYSeries, rowIndex: number) {
   return contentItems;
 }
 
-function getMultiHeader(dataIdxs: Array<number | null>, xySeries: XYSeries[]): string | undefined {
+function getMultiHeader(
+  dataIdxs: Array<number | null>,
+  xySeries: XYSeries[],
+  xAxisMode: XYXAxisMode,
+  relativeTimeUnit: XYRelativeTimeUnit
+): string | undefined {
   for (let i = 0; i < xySeries.length; i++) {
     const rowIndex = dataIdxs[i + 1];
 
     if (rowIndex != null) {
       const xField = xySeries[i].x.field;
-      return fmt(xField, xField.values[rowIndex]);
+      return formatXValue(xField, xField.values[rowIndex], xAxisMode, relativeTimeUnit);
     }
   }
 
   return undefined;
+}
+
+function formatXValue(
+  field: Field,
+  value: unknown,
+  xAxisMode: XYXAxisMode,
+  relativeTimeUnit: XYRelativeTimeUnit
+): string {
+  const numeric = typeof value === 'number' ? value : Number(value);
+
+  if (
+    field.type === FieldType.number &&
+    xAxisMode === XYXAxisMode.RelativeTime &&
+    relativeTimeUnit === XYRelativeTimeUnit.ElapsedSeconds &&
+    Number.isFinite(numeric)
+  ) {
+    return formatDurationSeconds(numeric);
+  }
+
+  return fmt(field, value);
 }
 
 function getMultiRows(

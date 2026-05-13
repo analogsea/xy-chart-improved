@@ -24,7 +24,8 @@ import {
 import { UPlotConfigBuilder } from '@grafana/ui';
 
 import { FacetedData, FacetSeries } from './compat/uPlotTooltip';
-import { XYZoomMode } from './options';
+import { formatDurationSeconds } from './duration';
+import { defaultZoomOptions, XYRelativeTimeUnit, XYXAxisMode, XYZoomMode } from './options';
 import { PointShape } from './panelcfg.gen';
 import { pointWithin, Quadtree, Rect } from './quadtree';
 import { XYSeries } from './types2';
@@ -44,11 +45,17 @@ interface DrawBubblesOpts {
   };
 }
 
+interface XAxisDisplayOptions {
+  mode?: XYXAxisMode;
+  relativeTimeUnit?: XYRelativeTimeUnit;
+}
+
 export const prepConfig = (
   xySeries: XYSeries[],
   theme: GrafanaTheme2,
   tooltipMode?: TooltipDisplayMode,
-  zoomMode = XYZoomMode.Box
+  zoomMode = XYZoomMode.Box,
+  xAxisDisplay: XAxisDisplayOptions = {}
 ) => {
   if (xySeries.length === 0) {
     return { builder: null, prepData: () => [] };
@@ -322,6 +329,10 @@ export const prepConfig = (
 
   let xField = xySeries[0].x.field;
   let xIsTime = xField.type === FieldType.time;
+  const xIsRelativeTime =
+    !xIsTime &&
+    xAxisDisplay.mode === XYXAxisMode.RelativeTime &&
+    (xAxisDisplay.relativeTimeUnit ?? defaultZoomOptions.relativeTimeUnit) === XYRelativeTimeUnit.ElapsedSeconds;
 
   let fieldConfig = xField.config;
   let customConfig = fieldConfig.custom;
@@ -349,14 +360,18 @@ export const prepConfig = (
   let xAxisLabel = customConfig.axisLabel;
 
   if (xAxisLabel == null || xAxisLabel === '') {
-    let dispNames = xySeries.map((s) => s.x.field.state?.displayName ?? '');
+    let xAxisAutoLabel = 'Elapsed time';
 
-    let xAxisAutoLabel =
-      xySeries.length === 1
-        ? (xField.state?.displayName ?? xField.name)
-        : new Set(dispNames).size === 1
-          ? dispNames[0]
-          : getCommonPrefixSuffix(dispNames);
+    if (!xIsRelativeTime) {
+      let dispNames = xySeries.map((s) => s.x.field.state?.displayName ?? '');
+
+      xAxisAutoLabel =
+        xySeries.length === 1
+          ? (xField.state?.displayName ?? xField.name)
+          : new Set(dispNames).size === 1
+            ? dispNames[0]
+            : getCommonPrefixSuffix(dispNames);
+    }
 
     if (xAxisAutoLabel !== '') {
       xAxisLabel = xAxisAutoLabel;
@@ -372,7 +387,21 @@ export const prepConfig = (
     border: { show: customConfig?.axisBorderShow },
     theme,
     label: xAxisLabel,
-    formatValue: xIsTime ? undefined : (v, decimals) => formattedValueToString(xField.display!(v, decimals)),
+    values: xIsRelativeTime
+      ? (u, splits) => {
+          const rangeSeconds = getScaleRange(u, 'x');
+
+          return splits.map((v) => (v == null ? '' : formatDurationSeconds(Number(v), { rangeSeconds })));
+        }
+      : undefined,
+    formatValue: xIsTime
+      ? undefined
+      : (v, decimals) =>
+          xIsRelativeTime
+            ? formatDurationSeconds(Number(v))
+            : xField.display
+              ? formattedValueToString(xField.display(v, decimals))
+              : String(v),
   });
 
   xySeries.forEach((s, si) => {
@@ -531,6 +560,14 @@ export const prepConfig = (
 
   return { builder, prepData };
 };
+
+function getScaleRange(u: uPlot, scaleKey: string): number | undefined {
+  const scale = u.scales[scaleKey];
+  const min = Number(scale?.min);
+  const max = Number(scale?.max);
+
+  return Number.isFinite(min) && Number.isFinite(max) ? Math.abs(max - min) : undefined;
+}
 
 function getNearestDataIdxByX(u: uPlot, seriesIdx: number): number | null {
   const cursorLeft = u.cursor.left;

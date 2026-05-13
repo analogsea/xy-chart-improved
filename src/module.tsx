@@ -7,7 +7,7 @@ import { SeriesEditor } from './SeriesEditor';
 import { XYChartPanel2 } from './XYChartPanel';
 import { getScatterFieldConfig } from './config';
 import { xyChartMigrationHandler } from './migrations';
-import { defaultZoomOptions, Options, XYZoomMode } from './options';
+import { defaultZoomOptions, Options, XYRelativeTimeUnit, XYZoomMode } from './options';
 import { FieldConfig, defaultFieldConfig } from './panelcfg.gen';
 import { xychartSuggestionsSupplier } from './suggestions';
 
@@ -54,25 +54,73 @@ export const plugin = new PanelPlugin<Options, FieldConfig>(XYChartPanel2)
         },
       })
       .addTextInput({
-        path: 'zoom.xMinVariable',
-        name: t('xychart.name-x-min-variable', 'X min variable'),
+        path: 'zoom.xModeVariable',
+        name: t('xychart.name-x-mode-variable', 'X mode variable'),
         description: t(
-          'xychart.description-x-min-variable',
-          'Dashboard variable updated when X-axis zoom selects a lower bound.'
+          'xychart.description-x-mode-variable',
+          'Dashboard variable that selects whether X values are steps or elapsed relative time.'
         ),
         category: zoomCategory,
-        defaultValue: defaultZoomOptions.xMinVariable,
+        defaultValue: defaultZoomOptions.xModeVariable,
         showIf: (options) => options.zoom?.mode === XYZoomMode.X,
       })
       .addTextInput({
-        path: 'zoom.xMaxVariable',
-        name: t('xychart.name-x-max-variable', 'X max variable'),
+        path: 'zoom.stepXMinVariable',
+        name: t('xychart.name-step-x-min-variable', 'Step min variable'),
         description: t(
-          'xychart.description-x-max-variable',
-          'Dashboard variable updated when X-axis zoom selects an upper bound.'
+          'xychart.description-step-x-min-variable',
+          'Dashboard variable updated when X-axis zoom selects a lower step bound.'
         ),
         category: zoomCategory,
-        defaultValue: defaultZoomOptions.xMaxVariable,
+        defaultValue: defaultZoomOptions.stepXMinVariable,
+        showIf: (options) => options.zoom?.mode === XYZoomMode.X,
+      })
+      .addTextInput({
+        path: 'zoom.stepXMaxVariable',
+        name: t('xychart.name-step-x-max-variable', 'Step max variable'),
+        description: t(
+          'xychart.description-step-x-max-variable',
+          'Dashboard variable updated when X-axis zoom selects an upper step bound.'
+        ),
+        category: zoomCategory,
+        defaultValue: defaultZoomOptions.stepXMaxVariable,
+        showIf: (options) => options.zoom?.mode === XYZoomMode.X,
+      })
+      .addTextInput({
+        path: 'zoom.relativeTimeXMinVariable',
+        name: t('xychart.name-relative-time-x-min-variable', 'Relative time min variable'),
+        description: t(
+          'xychart.description-relative-time-x-min-variable',
+          'Dashboard variable updated when X-axis zoom selects a lower elapsed-time bound.'
+        ),
+        category: zoomCategory,
+        defaultValue: defaultZoomOptions.relativeTimeXMinVariable,
+        showIf: (options) => options.zoom?.mode === XYZoomMode.X,
+      })
+      .addTextInput({
+        path: 'zoom.relativeTimeXMaxVariable',
+        name: t('xychart.name-relative-time-x-max-variable', 'Relative time max variable'),
+        description: t(
+          'xychart.description-relative-time-x-max-variable',
+          'Dashboard variable updated when X-axis zoom selects an upper elapsed-time bound.'
+        ),
+        category: zoomCategory,
+        defaultValue: defaultZoomOptions.relativeTimeXMaxVariable,
+        showIf: (options) => options.zoom?.mode === XYZoomMode.X,
+      })
+      .addRadio({
+        path: 'zoom.relativeTimeUnit',
+        name: t('xychart.name-relative-time-unit', 'Relative time unit'),
+        category: zoomCategory,
+        defaultValue: defaultZoomOptions.relativeTimeUnit,
+        settings: {
+          options: [
+            {
+              value: XYRelativeTimeUnit.ElapsedSeconds,
+              label: t('xychart.relative-time-unit-options.label-elapsed-seconds', 'Elapsed seconds'),
+            },
+          ],
+        },
         showIf: (options) => options.zoom?.mode === XYZoomMode.X,
       });
 

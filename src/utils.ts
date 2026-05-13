@@ -19,7 +19,7 @@ import { decoupleHideFromState } from './compat/decoupleHideFromState';
 import { XYShowMode, SeriesMapping, XYSeriesConfig } from './panelcfg.gen';
 import { XYSeries } from './types2';
 
-export function fmt(field: Field, val: number): string {
+export function fmt(field: Field, val: unknown): string {
   if (field.display) {
     return formattedValueToString(field.display(val));
   }

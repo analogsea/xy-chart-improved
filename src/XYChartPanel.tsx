@@ -20,7 +20,7 @@ import { defaultZoomOptions, Options, XYZoomMode } from './options';
 import { XYChartTooltip } from './XYChartTooltip';
 import { prepConfig } from './scatter';
 import { prepSeries } from './utils';
-import { getSharedXRangeQuery, getTimeRange } from './zoom';
+import { getSharedXRangeQuery, getTimeRange, getXAxisModeForPanel } from './zoom';
 
 type Props2 = PanelProps<Options>;
 
@@ -30,8 +30,10 @@ export const XYChartPanel2 = (props: Props2) => {
 
   let { mapping, series: mappedSeries } = props.options;
   const { onChangeTimeRange } = props;
-  const zoom = props.options.zoom ?? defaultZoomOptions;
-  const zoomMode = zoom.mode ?? defaultZoomOptions.mode;
+  const zoom = props.options.zoom;
+  const zoomMode = zoom?.mode ?? defaultZoomOptions.mode;
+  const xAxisMode = getXAxisModeForPanel(props.replaceVariables, zoom);
+  const relativeTimeUnit = zoom?.relativeTimeUnit ?? defaultZoomOptions.relativeTimeUnit;
   const tooltipMode = props.options.tooltip.mode;
   const tooltipEnabled = tooltipMode !== TooltipDisplayMode.None;
 
@@ -43,8 +45,8 @@ export const XYChartPanel2 = (props: Props2) => {
 
   // if series changed due to mappings or data structure, re-init config & renderers
   let { builder, prepData } = useMemo(
-    () => prepConfig(series, config.theme2, tooltipMode, zoomMode),
-    [series, tooltipMode, zoomMode]
+    () => prepConfig(series, config.theme2, tooltipMode, zoomMode, { mode: xAxisMode, relativeTimeUnit }),
+    [series, tooltipMode, zoomMode, xAxisMode, relativeTimeUnit]
   );
 
   // generate data struct for uPlot mode: 2
@@ -69,13 +71,13 @@ export const XYChartPanel2 = (props: Props2) => {
         return;
       }
 
-      const query = getSharedXRangeQuery(range, zoom);
+      const query = getSharedXRangeQuery(range, zoom, xAxisMode);
 
       if (query != null) {
         locationService.partial(query);
       }
     },
-    [isTimeXAxis, onChangeTimeRange, zoom]
+    [isTimeXAxis, onChangeTimeRange, zoom, xAxisMode]
   );
 
   // TODO: React.memo()
@@ -162,6 +164,8 @@ export const XYChartPanel2 = (props: Props2) => {
                     sortOrder={props.options.tooltip.sort}
                     hideZeros={props.options.tooltip.hideZeros}
                     maxHeight={props.options.tooltip.maxHeight}
+                    xAxisMode={xAxisMode}
+                    relativeTimeUnit={relativeTimeUnit}
                   />
                 );
               }}
