@@ -11,6 +11,10 @@ on:
 
 permissions: read-all
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: Build, lint, test and package
@@ -35,6 +39,19 @@ jobs:
         with:
           install: true
           cache: true
+
+      - name: Resolve npm cache directory
+        id: npm-cache-dir
+        run: echo "dir=$(mise exec -- npm config get cache)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache npm packages
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.npm-cache-dir.outputs.dir }}
+          key: ${{ runner.os }}-node-${{ hashFiles('mise.toml') }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ hashFiles('mise.toml') }}-npm-
+            ${{ runner.os }}-npm-
 
       - name: Install dependencies
         run: mise exec -- npm ci
@@ -96,6 +113,61 @@ jobs:
           if [ -f "playwright.config.ts" ]; then
             echo "has-e2e=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Resolve PR smoke E2E image
+        id: resolve-smoke-version
+        if: ${{ github.event_name == 'pull_request' && steps.check-for-e2e.outputs.has-e2e == 'true' }}
+        uses: grafana/plugin-actions/e2e-version@e2e-version/v2.0.0
+        with:
+          skip-grafana-nightly-image: true
+          limit: 1
+
+      - name: Select PR smoke E2E image
+        id: smoke-image
+        if: ${{ github.event_name == 'pull_request' && steps.check-for-e2e.outputs.has-e2e == 'true' }}
+        run: |
+          mise exec -- node <<'NODE' >> "$GITHUB_OUTPUT"
+          const matrix = JSON.parse(process.env.MATRIX);
+          const image = matrix[0];
+
+          if (!image) {
+            throw new Error('No Grafana image resolved for PR smoke E2E');
+          }
+
+          console.log(`image=${image.NAME ?? image.name}`);
+          console.log(`version=${image.VERSION ?? image.version}`);
+          NODE
+        env:
+          MATRIX: ${{ steps.resolve-smoke-version.outputs.matrix }}
+
+      - name: Start Grafana for PR smoke E2E
+        if: ${{ github.event_name == 'pull_request' && steps.check-for-e2e.outputs.has-e2e == 'true' }}
+        run: |
+          docker compose pull
+          ANONYMOUS_AUTH_ENABLED=false DEVELOPMENT=false GRAFANA_VERSION=${{ steps.smoke-image.outputs.version }} GRAFANA_IMAGE=${{ steps.smoke-image.outputs.image }} docker compose up -d
+
+      - name: Wait for PR smoke Grafana server
+        if: ${{ github.event_name == 'pull_request' && steps.check-for-e2e.outputs.has-e2e == 'true' }}
+        uses: grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.0.3
+        with:
+          url: http://localhost:3000/login
+
+      - name: Install Playwright browsers for PR smoke E2E
+        if: ${{ github.event_name == 'pull_request' && steps.check-for-e2e.outputs.has-e2e == 'true' }}
+        run: mise exec -- npm exec playwright install chromium --with-deps --only-shell
+
+      - name: Run PR smoke E2E
+        id: run-pr-smoke-e2e
+        if: ${{ github.event_name == 'pull_request' && steps.check-for-e2e.outputs.has-e2e == 'true' }}
+        run: mise exec -- npm run e2e
+
+      - name: Docker logs for PR smoke E2E
+        if: ${{ always() && github.event_name == 'pull_request' && steps.run-pr-smoke-e2e.outcome == 'failure' }}
+        run: docker logs analogsea-xychartimproved-panel >& grafana-server.log
+
+      - name: Stop PR smoke Grafana docker
+        if: ${{ always() && github.event_name == 'pull_request' && steps.check-for-e2e.outputs.has-e2e == 'true' }}
+        run: docker compose down
 
       - name: Sign plugin
         if: ${{ env.GRAFANA_ACCESS_POLICY_TOKEN != '' }}
@@ -163,7 +235,7 @@ jobs:
       contents: read
     timeout-minutes: 3
     needs: build
-    if: ${{ needs.build.outputs.has-e2e == 'true' }}
+    if: ${{ github.event_name != 'pull_request' && needs.build.outputs.has-e2e == 'true' }}
     outputs:
       matrix: ${{ steps.resolve-versions.outputs.matrix }}
     steps:
@@ -175,9 +247,12 @@ jobs:
       - name: Resolve Grafana E2E versions
         id: resolve-versions
         uses: grafana/plugin-actions/e2e-version@e2e-version/v2.0.0
+        with:
+          skip-grafana-nightly-image: true
 
   playwright-tests:
     needs: [resolve-versions, build]
+    if: ${{ github.event_name != 'pull_request' && needs.build.outputs.has-e2e == 'true' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -210,6 +285,19 @@ jobs:
           install: true
           cache: true
 
+      - name: Resolve npm cache directory
+        id: npm-cache-dir
+        run: echo "dir=$(mise exec -- npm config get cache)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache npm packages
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.npm-cache-dir.outputs.dir }}
+          key: ${{ runner.os }}-node-${{ hashFiles('mise.toml') }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ hashFiles('mise.toml') }}-npm-
+            ${{ runner.os }}-npm-
+
       - name: Install dev dependencies
         run: mise exec -- npm ci
 
@@ -224,7 +312,7 @@ jobs:
           url: http://localhost:3000/login
 
       - name: Install Playwright Browsers
-        run: mise exec -- npm exec playwright install chromium --with-deps
+        run: mise exec -- npm exec playwright install chromium --with-deps --only-shell
 
       - name: Run Playwright tests
         id: run-tests
