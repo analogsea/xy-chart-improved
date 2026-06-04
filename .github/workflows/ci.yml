@@ -148,7 +148,7 @@ jobs:
 
       - name: Wait for PR smoke Grafana server
         if: ${{ github.event_name == 'pull_request' && steps.check-for-e2e.outputs.has-e2e == 'true' }}
-        uses: grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.0.3
+        uses: grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.0.4
         with:
           url: http://localhost:3000/login
 
@@ -307,7 +307,7 @@ jobs:
           ANONYMOUS_AUTH_ENABLED=false DEVELOPMENT=false GRAFANA_VERSION=${{ matrix.GRAFANA_IMAGE.VERSION }} GRAFANA_IMAGE=${{ matrix.GRAFANA_IMAGE.NAME }} docker compose up -d
 
       - name: Wait for grafana server
-        uses: grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.0.3
+        uses: grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.0.4
         with:
           url: http://localhost:3000/login
 
